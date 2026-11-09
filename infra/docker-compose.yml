@@ -1,0 +1,73 @@
+name: second-hand-platform
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Khi có backend/ai-service dạng container, thêm depends_on tại đây.
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?đặt GRAFANA_PASSWORD trong .env}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+  backend:
+    build: ../backend
+    restart: unless-stopped
+    environment:
+      PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL:?đặt DATABASE_URL trong .env (xem docs/SUPABASE.md)}
+      JWT_SECRET: ${JWT_SECRET:?đặt JWT_SECRET trong .env}
+      REDIS_URL: redis://redis:6379
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?đặt ADMIN_EMAIL trong .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?đặt ADMIN_PASSWORD trong .env}
+      SEED_DEMO: "false"
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:8080}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}
+    depends_on:
+      - redis
+    ports:
+      - "8080:8080"
+
+  # ai-service: triển khai Vercel; chỉ thêm container nếu phải chuyển khỏi Vercel
+
+volumes:
+  redis_data:
+  prometheus_data:
+  grafana_data:
